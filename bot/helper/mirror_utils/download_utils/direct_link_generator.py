@@ -16,6 +16,7 @@ from json import loads as jsnloads
 from lk21 import Bypass
 from cfscrape import create_scraper
 from bs4 import BeautifulSoup
+from time import sleep
 from base64 import standard_b64encode
 from lxml import etree
 
@@ -78,9 +79,23 @@ def direct_link_generator(link: str):
         raise DirectDownloadLinkException(f'No Direct link function found for {link}')
 
 def zippy_share(url: str) -> str:
-    """ ZippyShare direct link generator
-    Based on https://github.com/zevtyardt/lk21 """
-    return Bypass().bypass_zippyshare(url)
+    base_url = re_search('http.+.zippyshare.com', url).group()
+    response = rget(url)
+    pages = BeautifulSoup(response.text, "html.parser")
+    js_script = pages.find("div", style="margin-left: 24px; margin-top: 20px; text-align: center; width: 303px; height: 105px;")
+    if js_script is None:
+        js_script = pages.find("div", style="margin-left: -22px; margin-top: -5px; text-align: center;width: 303px;")
+    js_script = str(js_script)
+
+    try:
+        mtk = eval(re_findall(r"\+.\((.*?)\).\+", js_script)[0])
+        uri1 = re_findall(r".href.=.\"/(.*?)/\"", js_script)[0]
+        uri2 = re_findall(r"\+.\"/(.*?)\"", js_script)[0]
+    except Exception as err:
+        LOGGER.error(err)
+        raise DirectDownloadLinkException("ERROR: Can't Get Direct Link")
+    dl_url = f"{base_url}/{uri1}/{int(mtk)}/{uri2}"
+    return dl_url
 
 def yandex_disk(url: str) -> str:
     """ Yandex.Disk direct link generator
@@ -114,7 +129,21 @@ def uptobox(url: str) -> str:
             file_link = 'https://uptobox.com/api/link?token=%s&file_code=%s' % (UPTOBOX_TOKEN, file_id)
             req = rget(file_link)
             result = req.json()
-            dl_url = result['data']['dlLink']
+            if result['message'].lower() == 'success':
+                dl_url = result['data']['dlLink']
+            elif result['message'].lower() == 'waiting needed':
+                waiting_time = result["data"]["waiting"] + 1
+                waiting_token = result["data"]["waitingToken"]
+                sleep(waiting_time)
+                req2 = rget(f"{file_link}&waitingToken={waiting_token}")
+                result2 = req2.json()
+                dl_url = result2['data']['dlLink']
+            elif result['message'].lower() == 'you need to wait before requesting a new download link':
+                cooldown = divmod(result['data']['waiting'], 60)
+                raise DirectDownloadLinkException(f"ERROR: Uptobox is being limited please wait {cooldown[0]} min {cooldown[1]} sec.")
+            else:
+                LOGGER.info(f"UPTOBOX_ERROR: {result}")
+                raise DirectDownloadLinkException(f"ERROR: {result['message']}")
     return dl_url
 
 def mediafire(url: str) -> str:
