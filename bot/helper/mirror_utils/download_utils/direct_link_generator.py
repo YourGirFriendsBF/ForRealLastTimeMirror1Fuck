@@ -22,7 +22,7 @@ from lxml import etree
 
 from bot import LOGGER, UPTOBOX_TOKEN, CRYPT, APPDRIVE_EMAIL, APPDRIVE_PASS
 from bot.helper.telegram_helper.bot_commands import BotCommands
-from bot.helper.ext_utils.bot_utils import is_gdtot_link
+from bot.helper.ext_utils.bot_utils import is_gdtot_link, is_appdrive:link
 from bot.helper.ext_utils.exceptions import DirectDownloadLinkException
 
 fmed_list = ['fembed.net', 'fembed.com', 'femax20.com', 'fcdn.stream', 'feurl.com', 'layarkacaxxi.icu',
@@ -71,6 +71,8 @@ def direct_link_generator(link: str):
         return krakenfiles(link)
     elif is_gdtot_link(link):
         return gdtot(link)
+    elif is_appdrive_link(link):
+        return appdrive(link)  
     elif any(x in link for x in fmed_list):
         return fembed(link)
     elif any(x in link for x in ['sbembed.com', 'watchsb.com', 'streamsb.net', 'sbplay.org']):
@@ -413,7 +415,7 @@ def gdtot(url: str) -> str:
         raise DirectDownloadLinkException("ERROR: Try in your broswer, mostly file not found or user limit exceeded!")
     return f'https://drive.google.com/open?id={decoded_id}'
 account = {
-    'email': APPDRIVE_EMAIL,
+   'email': APPDRIVE_EMAIL,
     'passwd': APPDRIVE_PASS
     }
 def account_login(client, url, email, password):
@@ -422,7 +424,6 @@ def account_login(client, url, email, password):
 
     if APPDRIVE_EMAIL is None:
         raise DirectDownloadLinkException("ERROR: Appdrive  Email Password not provided")
-
     data = {
         'email': email,
         'password': password
@@ -450,29 +451,38 @@ def appdrive(url: str) -> str:
     client.headers.update({
         "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.99 Safari/537.36"
     })
+
     account_login(client, url, account['email'], account['passwd'])
+
     res = client.get(url)
     key = re_findall(r'"key",\s+"(.*?)"', res.text)[0]
+
     ddl_btn = etree.HTML(res.content).xpath("//button[@id='drc']")
+
     info_parsed = parse_info(res.text)
     info_parsed['error'] = False
-    info_parsed['link_type'] = 'login'  # direct/login
+    info_parsed['link_type'] = 'login' # direct/login
+
     headers = {
         "Content-Type": f"multipart/form-data; boundary={'-'*4}_",
     }
+
     data = {
         'type': 1,
         'key': key,
         'action': 'original'
     }
+
     if len(ddl_btn):
         info_parsed['link_type'] = 'direct'
         data['action'] = 'direct'
+
     while data['type'] <= 3:
         try:
             response = client.post(url, data=gen_payload(data), headers=headers).json()
             break
         except: data['type'] += 1
+
     if 'url' in response:
         info_parsed['gdrive_link'] = response['url']
     elif 'error' in response and response['error']:
